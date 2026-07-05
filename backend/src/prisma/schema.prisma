@@ -1,0 +1,327 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectStatus {
+  planning
+  active
+  on_hold
+  complete
+  cancelled
+}
+
+enum MilestoneStatus {
+  pending
+  in_progress
+  complete
+  blocked
+}
+
+enum MilestonePhase {
+  onboarding
+  preconstruction
+  construction
+  closeout
+}
+
+enum Trade {
+  plumbing
+  electrical
+  masonry
+  carpentry
+  finish
+  painting
+  landscaping
+  hvac
+  roofing
+  tiling
+  drywall
+  general
+}
+
+enum DecisionType {
+  structured
+  freeform
+}
+
+enum DecisionStatus {
+  pending
+  staged
+  decided
+  locked
+}
+
+enum DecisionPriority {
+  critical
+  high
+  normal
+  low
+}
+
+enum MessageSender {
+  gc
+  client
+}
+
+enum WorkOrderStatus {
+  draft
+  sent
+  in_progress
+  completed
+  needs_revision
+}
+
+enum WorkOrderPriority {
+  normal
+  urgent
+}
+
+enum NotificationType {
+  sms
+  email
+  push
+}
+
+enum NotificationRecipientType {
+  gc
+  client
+  contractor
+}
+
+enum NotificationStatus {
+  sent
+  delivered
+  failed
+}
+
+enum DocumentKind {
+  plans
+  permits
+  contracts
+  soils
+  grading
+  plot
+  photos
+  other
+}
+
+enum DocumentStatus {
+  needed
+  received
+  on_file
+}
+
+model GCUser {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  pushSubs     Json     @default("[]")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Client {
+  id                  String    @id @default(uuid())
+  name                String
+  email               String    @unique
+  phone               String?
+  notifPrefs          Json      @default("{\"email\":true,\"sms\":false,\"push\":false}")
+  portalToken         String?   @unique
+  portalTokenExpires  DateTime?
+  pushSubs            Json      @default("[]")
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+  projects            Project[]
+}
+
+model Contractor {
+  id           String             @id @default(uuid())
+  name         String
+  phone        String
+  email        String?
+  trade        Trade
+  notes        String?
+  active       Boolean            @default(true)
+  isRetired    Boolean            @default(false)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  workOrders   WorkOrder[]
+  projects     ProjectContractor[]
+}
+
+model Project {
+  id           String             @id @default(uuid())
+  name         String
+  address      String
+  clientId     String
+  client       Client             @relation(fields: [clientId], references: [id])
+  status       ProjectStatus      @default(planning)
+  templateType String?
+  startDate    DateTime?
+  targetDate   DateTime?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  milestones   Milestone[]
+  decisions    Decision[]
+  workOrders   WorkOrder[]
+  contractors  ProjectContractor[]
+  documents    Document[]
+}
+
+model ProjectContractor {
+  projectId    String
+  contractorId String
+  role         String?
+  project      Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contractor   Contractor @relation(fields: [contractorId], references: [id])
+
+  @@id([projectId, contractorId])
+}
+
+model Milestone {
+  id         String          @id @default(uuid())
+  projectId  String
+  project    Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name       String
+  phase      MilestonePhase  @default(construction)
+  order      Int
+  startDate  DateTime?
+  endDate    DateTime?
+  status     MilestoneStatus @default(pending)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  decisions  Decision[]
+  workOrders WorkOrder[]
+  documents  Document[]
+
+  @@unique([projectId, order])
+}
+
+model Decision {
+  id               String           @id @default(uuid())
+  projectId        String
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestoneId      String?
+  milestone        Milestone?       @relation(fields: [milestoneId], references: [id])
+  title            String
+  description      String?
+  room             String?
+  type             DecisionType     @default(structured)
+  status           DecisionStatus   @default(pending)
+  priority         DecisionPriority @default(normal)
+  dueDate          DateTime?
+  stagedAt         DateTime?
+  decidedAt        DateTime?
+  selectedOptionId String?
+  allowance        Float?
+  chosenPrice      Float?
+  proposedUrl      String?
+  proposedNote     String?
+  proposedPrice    Float?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  options          DecisionOption[]
+  messages         DecisionMessage[]
+  workOrders       WorkOrder[]      @relation("WOSource")
+}
+
+model DecisionOption {
+  id          String   @id @default(uuid())
+  decisionId  String
+  decision    Decision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  label       String
+  description String?
+  photoS3Key  String?
+  price       Float?
+  vendorUrl   String?
+  createdAt   DateTime @default(now())
+}
+
+model DecisionMessage {
+  id               String        @id @default(uuid())
+  decisionId       String
+  decision         Decision      @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  senderType       MessageSender
+  body             String
+  attachmentS3Keys String[]      @default([])
+  createdAt        DateTime      @default(now())
+}
+
+model WorkOrder {
+  id                 String            @id @default(uuid())
+  projectId          String
+  project            Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestoneId        String?
+  milestone          Milestone?        @relation(fields: [milestoneId], references: [id])
+  contractorId       String?
+  contractor         Contractor?       @relation(fields: [contractorId], references: [id])
+  trade              Trade
+  title              String
+  instructions       String            @default("")
+  status             WorkOrderStatus   @default(draft)
+  priority           WorkOrderPriority @default(normal)
+  scheduledDate      DateTime?
+  dueDate            DateTime?
+  completedDate      DateTime?
+  fromDecisionId     String?
+  fromDecision       Decision?         @relation("WOSource", fields: [fromDecisionId], references: [id])
+  magicLinkToken     String            @unique @default(uuid())
+  magicLinkExpiresAt DateTime
+  smsSentAt          DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+  photos             WorkOrderPhoto[]
+  documents          WorkOrderDocument[]
+}
+
+model WorkOrderPhoto {
+  id          String    @id @default(uuid())
+  workOrderId String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  s3Key       String
+  caption     String?
+  createdAt   DateTime  @default(now())
+}
+
+model Notification {
+  id            String                    @id @default(uuid())
+  type          NotificationType
+  recipientId   String
+  recipientType NotificationRecipientType
+  subject       String?
+  body          String
+  status        NotificationStatus        @default(sent)
+  sentAt        DateTime                  @default(now())
+  metadata      Json                      @default("{}")
+}
+
+model Document {
+  id          String         @id @default(uuid())
+  projectId   String
+  project     Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestoneId String?
+  milestone   Milestone?     @relation(fields: [milestoneId], references: [id])
+  name        String
+  kind        DocumentKind   @default(other)
+  status      DocumentStatus @default(needed)
+  link        String?
+  s3Key       String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  workOrders  WorkOrderDocument[]
+}
+
+model WorkOrderDocument {
+  workOrderId String
+  documentId  String
+  workOrder   WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  document    Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@id([workOrderId, documentId])
+}

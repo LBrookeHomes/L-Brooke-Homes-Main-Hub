@@ -1,0 +1,22 @@
+*, *::before, *::after { box-sizing: border-box; }
+:root {
+  --ink: #171412;
+  --paper: #f5f1e8;
+  --card: #fffdf8;
+  --line: #2c2722;
+  --rust: #b6481f;
+  --green: #48623a;
+  --blue: #334d66;
+  --amber: #c68618;
+  --red: #a93b2f;
+  --muted: #6d6256;
+  --sand: #e5dccb;
+}
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: Arial, Helvetica, sans-serif;
+}
+button, input, select, textarea { font-family: inherit; }
+p, h1, h2, h3, h4, h5, h6 { margin: 0; }
