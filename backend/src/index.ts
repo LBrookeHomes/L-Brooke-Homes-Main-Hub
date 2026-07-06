@@ -12,6 +12,7 @@ import contractorRoutes from './routes/contractors'
 import clientRoutes from './routes/clients'
 import documentRoutes from './routes/documents'
 import notificationRoutes from './routes/notifications'
+import scheduleRoutes from './routes/schedule'
 import publicRoutes from './routes/public'
 
 const app = express()
@@ -42,6 +43,7 @@ app.use('/api/contractors', contractorRoutes)
 app.use('/api/clients', clientRoutes)
 app.use('/api/documents', documentRoutes)
 app.use('/api/notifications', notificationRoutes)
+app.use('/api/schedule', scheduleRoutes)
 app.use('/public', publicRoutes)
 
 app.get('/health', (_req, res) => res.json({ ok: true }))

@@ -325,3 +325,64 @@ model WorkOrderDocument {
 
   @@id([workOrderId, documentId])
 }
+
+// ── Work Schedule module ─────────────────────────────────────────────
+// Schedule workers are intentionally separate from the Contractor model.
+
+model Worker {
+  id        String           @id @default(cuid())
+  name      String
+  email     String?
+  phone     String?
+  active    Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  workItems WorkItemWorker[]
+}
+
+model JobLocation {
+  id        String             @id @default(cuid())
+  name      String
+  active    Boolean            @default(true)
+  createdAt DateTime           @default(now())
+  workItems WorkItemLocation[]
+}
+
+model WorkItem {
+  id               String    @id @default(cuid())
+  jobDetails       String
+  status           String    @default("Planning")
+  timeline         String?
+  jobDate          DateTime?
+  day              String?
+  notes            String?
+  materialRequired Boolean   @default(false)
+  startTime        String? // "HH:mm" strings, matching old app
+  endTime          String?
+  plannedHours     Float?
+  paymentStatus    String?
+  purchasingItems  String?
+  firstStop        Boolean   @default(false)
+  endOfDay         Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  workers          WorkItemWorker[]
+  locations        WorkItemLocation[]
+}
+
+model WorkItemWorker {
+  workItemId String
+  workerId   String
+  workItem   WorkItem @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  worker     Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@id([workItemId, workerId])
+}
+
+model WorkItemLocation {
+  workItemId String
+  locationId String
+  workItem   WorkItem    @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  location   JobLocation @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@id([workItemId, locationId])
+}

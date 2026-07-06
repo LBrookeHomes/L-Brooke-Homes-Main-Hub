@@ -105,6 +105,29 @@ export default function GCLayout({ children }: Props) {
           </span>
         )}
       </button>
+
+      {/* Schedule sits under Notifications, per owner request */}
+      <NavLink
+        to="/schedule"
+        onClick={() => setDrawerOpen(false)}
+        style={({ isActive }) => ({
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+          padding: '9px 16px',
+          textDecoration: 'none',
+          fontWeight: 800,
+          fontSize: '0.78rem',
+          textTransform: 'uppercase' as const,
+          letterSpacing: '0.05em',
+          color: isActive ? '#fff' : 'rgba(255,255,255,0.55)',
+          background: isActive ? 'rgba(182,72,31,0.18)' : 'transparent',
+          borderLeft: isActive ? `3px solid ${t.rust}` : '3px solid transparent',
+        })}
+      >
+        <span style={{ fontSize: '0.9rem', lineHeight: 1, opacity: 0.8 }}>▤</span>
+        Schedule
+      </NavLink>
     </>
   )
 
