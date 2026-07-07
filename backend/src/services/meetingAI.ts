@@ -125,29 +125,86 @@ export async function analyzeMeeting(
   return parseAnalysisJson(textOut)
 }
 
+const MIN_READABLE = 60
+
+/** Recursively collect prose-like strings from parsed JSON (a Next.js data
+ * island, ld+json, etc.). Filters out ids, urls, paths, class names. */
+function collectProse(node: unknown, out: string[], depth = 0): void {
+  if (depth > 12 || out.length > 4000) return
+  if (typeof node === 'string') {
+    const s = node.trim()
+    if (
+      s.length >= 20 &&
+      s.includes(' ') &&
+      !/^https?:\/\//i.test(s) &&
+      !/^[/{[<]/.test(s) &&
+      !/^[\w.-]+\.(js|css|png|jpe?g|svg|gif|woff2?|ico|json)$/i.test(s)
+    ) {
+      out.push(s)
+    }
+    return
+  }
+  if (Array.isArray(node)) { for (const v of node) collectProse(v, out, depth + 1); return }
+  if (node && typeof node === 'object') { for (const v of Object.values(node)) collectProse(v, out, depth + 1) }
+}
+
+/** Extract readable text from embedded JSON script blobs (e.g. Next.js
+ * __NEXT_DATA__). Many SPAs ship the page's content this way even when the
+ * visible DOM is rendered by JS — our tag-stripping pass would discard it. */
+export function textFromJsonBlobs(html: string): string {
+  const re = /<script[^>]*type=["'](?:application\/json|application\/ld\+json)["'][^>]*>([\s\S]*?)<\/script>/gi
+  const prose: string[] = []
+  let m: RegExpExecArray | null
+  while ((m = re.exec(html))) {
+    try { collectProse(JSON.parse(m[1].trim()), prose) } catch { /* not valid JSON */ }
+  }
+  const seen = new Set<string>()
+  return prose.filter((s) => (seen.has(s) ? false : (seen.add(s), true))).join('\n')
+}
+
+/** Best-effort readable-text extraction: try embedded JSON data islands and
+ * plain tag-stripping, keep whichever yields more content. */
+export function extractReadableText(html: string): string {
+  const fromJson = textFromJsonBlobs(html)
+  const fromTags = htmlToText(html)
+  return fromJson.length > fromTags.length ? fromJson : fromTags
+}
+
 /**
  * Best-effort fetch + text extraction for a shared link (e.g. Granola).
- * Many share links are private and will fail — callers must surface a
- * "paste the text instead" message on error rather than failing silently.
+ * Distinguishes the failure modes so the UI can guide the user precisely:
+ * unreachable, blocked/non-200, or reachable-but-no-readable-text (typical of
+ * a client-rendered SPA whose content only appears after JS runs).
  */
 export async function fetchLinkText(url: string): Promise<string> {
   let res: Response
   try {
     res = await fetch(url, {
       redirect: 'follow',
-      headers: { 'user-agent': 'Mozilla/5.0 (compatible; LBrookeHomesHub/1.0)' },
+      headers: {
+        'user-agent': 'Mozilla/5.0 (compatible; LBrookeHomesHub/1.0)',
+        accept: 'text/html,application/xhtml+xml',
+      },
     })
   } catch {
-    throw new MeetingAIError("Couldn't read that link — please paste the meeting text instead.")
+    throw new MeetingAIError("Couldn't reach that link — please paste the meeting text instead.")
   }
   if (!res.ok) {
-    throw new MeetingAIError("Couldn't read that link — please paste the meeting text instead.")
+    throw new MeetingAIError(
+      `Couldn't open that link (it returned ${res.status}) — please paste the meeting text instead.`
+    )
   }
   const html = await res.text()
-  const text = htmlToText(html)
-  if (text.trim().length < 40) {
-    // Too little readable content — almost certainly an auth wall or JS app shell.
-    throw new MeetingAIError("Couldn't read that link — please paste the meeting text instead.")
+  const text = extractReadableText(html)
+  console.log(
+    `[link-fetch] ${url} status=${res.status} html=${html.length}B extracted=${text.trim().length}`
+  )
+  if (text.trim().length < MIN_READABLE) {
+    // Reached the page but found no readable notes — the content is almost
+    // certainly rendered in-browser by JavaScript (e.g. a Granola share page).
+    throw new MeetingAIError(
+      "Opened the link but couldn't find the notes on the page — they load in your browser, so please paste the transcript text instead."
+    )
   }
   return text
 }
