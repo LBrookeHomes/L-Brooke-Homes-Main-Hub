@@ -1,0 +1,14 @@
+# Railway config for the Weebrook backend service (service Root Directory = backend).
+#
+# Runs any pending Prisma migrations automatically on every deploy. Railway
+# executes preDeployCommand once per deployment in an isolated one-off
+# container with the service's environment variables (including the
+# auto-injected DATABASE_URL) before the new version starts receiving
+# traffic. If a migration fails, Railway aborts the release and leaves the
+# previous version running — so a bad migration can't take the API down.
+#
+# Build and start commands are intentionally left to Railway's auto-detection
+# (Nixpacks) so this file only adds the migration step.
+
+[deploy]
+preDeployCommand = "npm run migrate:deploy"
