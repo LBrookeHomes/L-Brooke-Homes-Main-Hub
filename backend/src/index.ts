@@ -13,7 +13,9 @@ import clientRoutes from './routes/clients'
 import documentRoutes from './routes/documents'
 import notificationRoutes from './routes/notifications'
 import scheduleRoutes from './routes/schedule'
+import meetingRoutes from './routes/meetings'
 import publicRoutes from './routes/public'
+import { startDigestScheduler } from './services/meetingReminders'
 
 const app = express()
 const PORT = process.env.PORT || 3001
@@ -44,12 +46,14 @@ app.use('/api/clients', clientRoutes)
 app.use('/api/documents', documentRoutes)
 app.use('/api/notifications', notificationRoutes)
 app.use('/api/schedule', scheduleRoutes)
+app.use('/api/meetings', meetingRoutes)
 app.use('/public', publicRoutes)
 
 app.get('/health', (_req, res) => res.json({ ok: true }))
 
 app.listen(PORT, () => {
   console.log(`Weebrook API running on port ${PORT}`)
+  startDigestScheduler()
 })
 
 export default app

@@ -1,0 +1,172 @@
+// Meeting analysis via the Claude API (Anthropic Messages API), called
+// server-side only. The API key never leaves the backend.
+
+const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com'
+const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5'
+const ANTHROPIC_VERSION = '2023-06-01'
+
+export interface AnalyzedFollowUp {
+  title: string
+  details: string
+  dueDate: string | null // ISO date (YYYY-MM-DD) or null
+}
+
+export interface MeetingAnalysis {
+  title: string
+  summary: string
+  decisions: string
+  followUps: AnalyzedFollowUp[]
+}
+
+/** Thrown when the AI cannot be reached / is misconfigured. Message is UI-safe. */
+export class MeetingAIError extends Error {}
+
+const SYSTEM_PROMPT = `You are the meeting follow-up assistant for Rob, a busy custom-home builder who runs his business himself. He manages everything personally — there are no employees to delegate to, so every follow-up is his to do.
+
+Given a meeting transcript, produce a tight, practical brief. Write for someone with no time to waste: skip filler, surface what actually matters.
+
+Return ONLY a single JSON object (no prose, no markdown fences) with exactly these keys:
+- "title": a short descriptive title for the meeting, inferred from the content.
+- "summary": the crux of the meeting — what it was about and what came out of it, in a few clear sentences or short bullet lines.
+- "decisions": the key decisions made and any risks or open concerns. Newline-separated list. Empty string if none.
+- "followUps": an array of concrete, action-oriented tasks for Rob. Each item is an object with:
+    - "title": short imperative task ("Call the framing sub about the revised joist spec").
+    - "details": one line of useful context, or "".
+    - "dueDate": an ISO date string "YYYY-MM-DD" when the transcript implies timing (e.g. "by next Friday", "before the pour"); otherwise null. Interpret relative dates against the meeting date provided.
+
+Keep followUps focused — only real, actionable items. If there are none, return an empty array.`
+
+/** Strip markdown code fences and isolate the JSON object, then parse. */
+function parseAnalysisJson(raw: string): MeetingAnalysis {
+  let text = raw.trim()
+  // Remove ```json ... ``` or ``` ... ``` fences if present.
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
+  if (fence) text = fence[1].trim()
+  // Fall back to the outermost { ... } if there is surrounding prose.
+  if (!text.startsWith('{')) {
+    const first = text.indexOf('{')
+    const last = text.lastIndexOf('}')
+    if (first !== -1 && last > first) text = text.slice(first, last + 1)
+  }
+  let obj: any
+  try {
+    obj = JSON.parse(text)
+  } catch {
+    throw new MeetingAIError('The AI returned an unreadable response. Please try again.')
+  }
+  const followUps: AnalyzedFollowUp[] = Array.isArray(obj.followUps)
+    ? obj.followUps
+        .filter((f: any) => f && typeof f.title === 'string' && f.title.trim())
+        .map((f: any) => ({
+          title: String(f.title).trim(),
+          details: typeof f.details === 'string' ? f.details.trim() : '',
+          dueDate: typeof f.dueDate === 'string' && f.dueDate.trim() ? f.dueDate.trim() : null,
+        }))
+    : []
+  return {
+    title: typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : 'Untitled meeting',
+    summary: typeof obj.summary === 'string' ? obj.summary.trim() : '',
+    decisions: typeof obj.decisions === 'string' ? obj.decisions.trim() : '',
+    followUps,
+  }
+}
+
+export async function analyzeMeeting(
+  transcript: string,
+  meetingDate?: Date
+): Promise<MeetingAnalysis> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    throw new MeetingAIError('AI not configured — add ANTHROPIC_API_KEY in Railway.')
+  }
+  const dateLine = meetingDate
+    ? `The meeting took place on ${meetingDate.toISOString().slice(0, 10)}.`
+    : `Assume the meeting took place today, ${new Date().toISOString().slice(0, 10)}.`
+
+  let res: Response
+  try {
+    res = await fetch(`${ANTHROPIC_BASE_URL}/v1/messages`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': ANTHROPIC_VERSION,
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 2048,
+        system: SYSTEM_PROMPT,
+        messages: [
+          {
+            role: 'user',
+            content: `${dateLine}\n\nMeeting transcript:\n"""\n${transcript}\n"""\n\nReturn the JSON brief now.`,
+          },
+        ],
+      }),
+    })
+  } catch (err) {
+    throw new MeetingAIError('Could not reach the AI service. Please try again shortly.')
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    console.error(`Anthropic API error ${res.status}: ${body.slice(0, 500)}`)
+    if (res.status === 401) throw new MeetingAIError('AI key rejected — check ANTHROPIC_API_KEY in Railway.')
+    throw new MeetingAIError('The AI service returned an error. Please try again shortly.')
+  }
+
+  const data: any = await res.json()
+  const textOut: string = Array.isArray(data?.content)
+    ? data.content.filter((b: any) => b?.type === 'text').map((b: any) => b.text).join('\n')
+    : ''
+  if (!textOut.trim()) {
+    throw new MeetingAIError('The AI returned an empty response. Please try again.')
+  }
+  return parseAnalysisJson(textOut)
+}
+
+/**
+ * Best-effort fetch + text extraction for a shared link (e.g. Granola).
+ * Many share links are private and will fail — callers must surface a
+ * "paste the text instead" message on error rather than failing silently.
+ */
+export async function fetchLinkText(url: string): Promise<string> {
+  let res: Response
+  try {
+    res = await fetch(url, {
+      redirect: 'follow',
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; LBrookeHomesHub/1.0)' },
+    })
+  } catch {
+    throw new MeetingAIError("Couldn't read that link — please paste the meeting text instead.")
+  }
+  if (!res.ok) {
+    throw new MeetingAIError("Couldn't read that link — please paste the meeting text instead.")
+  }
+  const html = await res.text()
+  const text = htmlToText(html)
+  if (text.trim().length < 40) {
+    // Too little readable content — almost certainly an auth wall or JS app shell.
+    throw new MeetingAIError("Couldn't read that link — please paste the meeting text instead.")
+  }
+  return text
+}
+
+/** Lightweight HTML → readable text: drop scripts/styles, strip tags, collapse whitespace. */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<\/(p|div|li|h[1-6]|br|tr)>/gi, '\n')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&quot;/gi, '"')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}

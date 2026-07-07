@@ -386,3 +386,35 @@ model WorkItemLocation {
 
   @@id([workItemId, locationId])
 }
+
+// ── Meetings module (Meeting Intelligence) ───────────────────────────
+// Single-user (Rob): paste a Granola link or transcript, Claude analyzes it
+// into a summary, decisions, and follow-up tasks with due dates.
+
+model Meeting {
+  id          String     @id @default(cuid())
+  title       String
+  sourceType  String // "granola-link" | "pasted-text"
+  sourceUrl   String?
+  transcript  String // raw text used for analysis
+  summary     String? // the crux / write-up
+  decisions   String? // key decisions & risks (markdown or newline list)
+  status      String     @default("analyzed") // "analyzing" | "analyzed" | "failed"
+  meetingDate DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  followUps   FollowUp[]
+}
+
+model FollowUp {
+  id         String    @id @default(cuid())
+  meetingId  String
+  meeting    Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  title      String
+  details    String?
+  dueDate    DateTime?
+  status     String    @default("open") // "open" | "done" | "dismissed"
+  remindedOn DateTime? // last date a digest included this (avoid dupes)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}

@@ -10,6 +10,7 @@ import TimelinePage from './pages/Project/TimelinePage'
 import ContractorsPage from './pages/Project/ContractorsPage'
 import ContractorsRoster from './pages/Contractors/ContractorsRoster'
 import SchedulePage from './pages/Schedule/SchedulePage'
+import MeetingsPage from './pages/Meetings/MeetingsPage'
 import LoginPage from './pages/LoginPage'
 import ClientPortal from './pages/ClientPortal/ClientPortal'
 import ClientLogin from './pages/ClientPortal/ClientLogin'
@@ -36,6 +37,7 @@ export default function App() {
         </Route>
         <Route path="/contractors" element={<ProtectedRoute><ContractorsRoster /></ProtectedRoute>} />
         <Route path="/schedule" element={<ProtectedRoute><SchedulePage /></ProtectedRoute>} />
+        <Route path="/meetings" element={<ProtectedRoute><MeetingsPage /></ProtectedRoute>} />
         <Route path="/portal/login" element={<ClientLogin />} />
         <Route path="/portal/project/:projectId" element={<ClientPortal />} />
         <Route path="/wo/:token" element={<WorkOrderView />} />
