@@ -31,7 +31,7 @@ export default function LoginPage() {
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: t.paper, padding: '1rem' }}>
       <div style={{ background: t.card, border: `2px solid ${t.line}`, padding: '2.5rem 2rem', width: '100%', maxWidth: 360 }}>
         <div style={{ marginBottom: '1.75rem' }}>
-          <h1 style={{ fontWeight: 900, fontSize: '1.6rem', textTransform: 'uppercase', letterSpacing: '-0.01em', color: t.ink, marginBottom: 6 }}>Weebrook</h1>
+          <h1 style={{ fontWeight: 900, fontSize: '1.6rem', textTransform: 'uppercase', letterSpacing: '-0.01em', color: t.ink, marginBottom: 6 }}>L. Brooke Homes</h1>
           <p style={{ fontSize: 11, color: t.muted, textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 700 }}>GC Project Management</p>
         </div>
         <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>

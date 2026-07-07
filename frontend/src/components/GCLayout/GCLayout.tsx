@@ -167,7 +167,7 @@ export default function GCLayout({ children }: Props) {
             aria-label="Open menu"
             style={{ background: 'transparent', border: 'none', color: '#fff', cursor: 'pointer', padding: '8px 10px', fontSize: '1.3rem', lineHeight: 1 }}
           >≡</button>
-          <span style={{ fontWeight: 900, fontSize: '0.95rem', textTransform: 'uppercase', color: '#fff', letterSpacing: '0.01em' }}>Weebrook</span>
+          <span style={{ fontWeight: 900, fontSize: '0.95rem', textTransform: 'uppercase', color: '#fff', letterSpacing: '0.01em' }}>L. Brooke Homes</span>
           <button
             onClick={() => setShowInbox(true)}
             aria-label="Notifications"
@@ -207,8 +207,8 @@ export default function GCLayout({ children }: Props) {
           transition: 'transform 0.2s ease',
         }}>
           <div style={{ padding: '18px 16px 14px', borderBottom: `1px solid rgba(255,255,255,0.08)` }}>
-            <p style={{ fontWeight: 900, fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.01em', color: '#fff', margin: 0 }}>Weebrook</p>
-            <p style={{ fontFamily: 'monospace', fontSize: 9, color: t.rust, textTransform: 'uppercase', letterSpacing: '0.16em', marginTop: 3, fontWeight: 700 }}>Plan Intelligence</p>
+            <p style={{ fontWeight: 900, fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.01em', color: '#fff', margin: 0 }}>L. Brooke Homes</p>
+            <p style={{ fontFamily: 'monospace', fontSize: 9, color: t.rust, textTransform: 'uppercase', letterSpacing: '0.16em', marginTop: 3, fontWeight: 700 }}>Custom Home Builder</p>
           </div>
           <nav style={{ flex: 1, padding: '10px 0' }}>{navLinks}</nav>
           {userFooter}
@@ -238,8 +238,8 @@ export default function GCLayout({ children }: Props) {
         zIndex: 20,
       }}>
         <div style={{ padding: '18px 16px 14px', borderBottom: `1px solid rgba(255,255,255,0.08)` }}>
-          <p style={{ fontWeight: 900, fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.01em', color: '#fff', margin: 0 }}>Weebrook</p>
-          <p style={{ fontFamily: 'monospace', fontSize: 9, color: t.rust, textTransform: 'uppercase', letterSpacing: '0.16em', marginTop: 3, fontWeight: 700 }}>Plan Intelligence</p>
+          <p style={{ fontWeight: 900, fontSize: '1rem', textTransform: 'uppercase', letterSpacing: '0.01em', color: '#fff', margin: 0 }}>L. Brooke Homes</p>
+          <p style={{ fontFamily: 'monospace', fontSize: 9, color: t.rust, textTransform: 'uppercase', letterSpacing: '0.16em', marginTop: 3, fontWeight: 700 }}>Custom Home Builder</p>
         </div>
         <nav style={{ flex: 1, padding: '10px 0' }}>{navLinks}</nav>
         {userFooter}

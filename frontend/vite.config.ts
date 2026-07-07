@@ -12,8 +12,8 @@ export default defineConfig({
       srcDir: 'public',
       filename: 'sw.js',
       manifest: {
-        name: 'Weebrook',
-        short_name: 'Weebrook',
+        name: 'L. Brooke Homes',
+        short_name: 'L. Brooke Homes',
         theme_color: '#1a5c38',
         background_color: '#ffffff',
         display: 'standalone',

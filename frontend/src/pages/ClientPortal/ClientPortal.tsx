@@ -93,7 +93,7 @@ export default function ClientPortal() {
     <div style={{ minHeight: '100vh', background: t.paper }}>
       <header style={{ background: t.ink, color: '#fff', borderBottom: `4px solid ${t.rust}`, padding: '13px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
         <div>
-          <div style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1.05rem', letterSpacing: '0.01em' }}>Weebrook</div>
+          <div style={{ fontWeight: 900, textTransform: 'uppercase', fontSize: '1.05rem', letterSpacing: '0.01em' }}>L. Brooke Homes</div>
           <div style={{ fontSize: 11, color: '#d9874c', letterSpacing: '0.18em', fontWeight: 700, marginTop: 2 }}>CLIENT PORTAL</div>
         </div>
         <div style={{ textAlign: 'right' }}>

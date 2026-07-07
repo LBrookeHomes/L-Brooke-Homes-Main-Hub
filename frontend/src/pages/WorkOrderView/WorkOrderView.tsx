@@ -114,7 +114,7 @@ export default function WorkOrderView() {
         </div>
         <p style={{ fontFamily: 'monospace', fontSize: 10, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.1em', color: t.muted, marginBottom: 8 }}>Work Order</p>
         <h2 style={{ fontWeight: 900, fontSize: '1.3rem', textTransform: 'uppercase', marginBottom: 8 }}>Job Submitted</h2>
-        <p style={{ color: t.muted, fontSize: '0.875rem', marginBottom: '1rem' }}>Your GC has been notified. Thanks for using Weebrook.</p>
+        <p style={{ color: t.muted, fontSize: '0.875rem', marginBottom: '1rem' }}>Your GC has been notified. Thanks for using L. Brooke Homes.</p>
         <p style={{ fontWeight: 700, fontSize: '0.875rem', color: t.ink }}>{wo.project.address}</p>
         <p style={{ fontSize: '0.8rem', color: t.muted, fontFamily: 'monospace' }}>{wo.title}</p>
       </div>
@@ -131,7 +131,7 @@ export default function WorkOrderView() {
       {/* Header */}
       <header style={{ background: t.ink, borderBottom: `4px solid ${t.rust}`, padding: '0.9rem 1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <div>
-          <p style={{ fontWeight: 900, fontSize: '1.05rem', textTransform: 'uppercase', letterSpacing: '-0.01em', color: '#fff', margin: 0 }}>Weebrook</p>
+          <p style={{ fontWeight: 900, fontSize: '1.05rem', textTransform: 'uppercase', letterSpacing: '-0.01em', color: '#fff', margin: 0 }}>L. Brooke Homes</p>
           <p style={{ fontFamily: 'monospace', fontSize: 10, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.12em', marginTop: 1 }}>Work Order</p>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>

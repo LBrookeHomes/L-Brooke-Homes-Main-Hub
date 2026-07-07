@@ -28,7 +28,7 @@ export default function ClientLogin() {
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: t.paper }}>
       <div style={{ background: t.card, border: `2px solid ${t.line}`, padding: '2.5rem 2rem', width: 360, textAlign: 'center' }}>
-        <h1 style={{ fontWeight: 900, fontSize: '1.3rem', textTransform: 'uppercase', letterSpacing: '-0.01em', marginBottom: 6 }}>Weebrook</h1>
+        <h1 style={{ fontWeight: 900, fontSize: '1.3rem', textTransform: 'uppercase', letterSpacing: '-0.01em', marginBottom: 6 }}>L. Brooke Homes</h1>
         <p style={{ fontSize: 11, color: t.muted, textTransform: 'uppercase', letterSpacing: '0.14em', fontWeight: 700, marginBottom: '1.5rem' }}>Client Portal</p>
         {error ? (
           <>

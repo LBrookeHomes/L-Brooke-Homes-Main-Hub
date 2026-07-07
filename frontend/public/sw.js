@@ -5,7 +5,7 @@ self.__precacheManifest = self.__WB_MANIFEST
 
 self.addEventListener('push', (event) => {
   const data = event.data ? event.data.json() : {}
-  const title = data.title || 'Weebrook'
+  const title = data.title || 'L. Brooke Homes'
   const options = {
     body: data.body || '',
     icon: '/icon-192.png',
