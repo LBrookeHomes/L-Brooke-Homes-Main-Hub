@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { meetingsApi, type FollowUp } from '../../api/meetings'
+import { meetingsApi, STAGES, STAGE_LABELS, type FollowUp, type Stage } from '../../api/meetings'
 import GCLayout from '../../components/GCLayout/GCLayout'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { t } from '../../theme'
@@ -28,6 +28,10 @@ const btnSmall: React.CSSProperties = {
 const sectionLabel: React.CSSProperties = {
   fontFamily: 'monospace', fontSize: 10, fontWeight: 900, textTransform: 'uppercase',
   letterSpacing: '0.1em', color: t.muted, marginBottom: 8,
+}
+const stageHeader: React.CSSProperties = {
+  fontFamily: 'monospace', fontSize: 10.5, fontWeight: 900, textTransform: 'uppercase',
+  letterSpacing: '0.06em', color: t.rust, marginBottom: 6, marginTop: 4,
 }
 
 function fmtDate(iso: string | null): string {
@@ -119,7 +123,7 @@ export default function MeetingsPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12, marginBottom: '1.5rem' }}>
           <div>
             <h1 style={{ fontSize: 28, fontWeight: 900, textTransform: 'uppercase', marginBottom: 4 }}>Meetings</h1>
-            <p style={{ fontSize: 13, color: t.muted }}>Paste a meeting — get a brief, decisions, and follow-ups you won't forget</p>
+            <p style={{ fontSize: 13, color: t.muted }}>Paste a meeting — see who needs to do what, and where it falls in the build</p>
           </div>
           <button onClick={() => digestMut.mutate()} disabled={digestMut.isPending} style={{ ...btnGhost, padding: '7px 14px', fontSize: 11, whiteSpace: 'nowrap' }}>
             {digestLabel}
@@ -168,21 +172,28 @@ export default function MeetingsPage() {
                 <p style={{ color: '#fff', fontWeight: 900, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.04em', margin: 0 }}>{selected.title}</p>
                 <button onClick={() => removeMut.mutate(selected.id)} style={{ background: 'transparent', border: '1.5px solid rgba(255,255,255,0.3)', color: 'rgba(255,255,255,0.8)', padding: '3px 9px', cursor: 'pointer', fontSize: 10, fontWeight: 800, textTransform: 'uppercase' }}>Delete</button>
               </div>
-              <div style={{ padding: '1rem 1.1rem', display: 'flex', flexDirection: 'column', gap: 18 }}>
-                {selected.summary && (
+              <div style={{ padding: '1rem 1.1rem', display: 'flex', flexDirection: 'column', gap: 16 }}>
+                {/* One-line header: date + attendees */}
+                <p style={{ fontSize: 12, color: t.muted, margin: 0 }}>
+                  {fmtDate(selected.meetingDate ?? selected.createdAt)}
+                  {selected.attendees && <> · Attendees: {selected.attendees}</>}
+                </p>
+
+                {/* Confirmed this meeting — quiet, low-emphasis strip */}
+                {selected.confirmed.length > 0 && (
                   <div>
-                    <p style={sectionLabel}>Summary</p>
-                    <p style={{ fontSize: 14, lineHeight: 1.55, whiteSpace: 'pre-wrap', color: t.ink }}>{selected.summary}</p>
+                    <p style={{ fontFamily: 'monospace', fontSize: 9.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: t.muted, marginBottom: 4 }}>
+                      Confirmed this meeting
+                    </p>
+                    <ul style={{ margin: 0, paddingLeft: 16, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                      {selected.confirmed.map((c, i) => (
+                        <li key={i} style={{ fontSize: 12.5, color: t.muted, lineHeight: 1.5 }}>{c}</li>
+                      ))}
+                    </ul>
                   </div>
                 )}
-                {selected.decisions && (
-                  <div>
-                    <p style={sectionLabel}>Key Decisions &amp; Risks</p>
-                    <p style={{ fontSize: 14, lineHeight: 1.55, whiteSpace: 'pre-wrap', color: t.ink }}>{selected.decisions}</p>
-                  </div>
-                )}
-                <FollowUpList
-                  meetingId={selected.id}
+
+                <FollowUpsByStage
                   followUps={selected.followUps}
                   onPatch={(fid, patch) => followUpMut.mutate({ mid: selected.id, fid, patch })}
                   onDelete={(fid) => deleteFollowUpMut.mutate({ mid: selected.id, fid })}
@@ -225,48 +236,56 @@ export default function MeetingsPage() {
   )
 }
 
-// ── Follow-up list: active items, plus a collapsible archived/paused tray ─
-function FollowUpList({
-  meetingId,
+// ── Follow-ups grouped by build stage, with a global archived/paused toggle ─
+function FollowUpsByStage({
   followUps,
   onPatch,
   onDelete,
 }: {
-  meetingId: string
   followUps: FollowUp[]
   onPatch: (fid: string, patch: FollowUpPatch) => void
   onDelete: (fid: string) => void
 }) {
   const [showHidden, setShowHidden] = useState(false)
-  const active = followUps.filter((f) => f.status === 'open' || f.status === 'done')
-  const hidden = followUps.filter((f) => f.status === 'archived' || f.status === 'paused')
+  const hiddenCount = followUps.filter((f) => f.status === 'archived' || f.status === 'paused').length
+  const visible = showHidden ? followUps : followUps.filter((f) => f.status === 'open' || f.status === 'done')
+
+  const groups = STAGES.map((stage) => ({
+    stage,
+    items: visible.filter((f) => f.stage === stage),
+  })).filter((g) => g.items.length > 0)
 
   return (
     <div>
-      <p style={sectionLabel}>Follow-Up Tasks ({active.length})</p>
-      {active.length === 0 ? (
-        <p style={{ fontSize: 13, color: t.muted, fontStyle: 'italic' }}>No active follow-ups from this meeting.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
+        <p style={sectionLabel}>Follow-Ups</p>
+        <p style={{ fontSize: 11, color: t.muted, margin: 0 }}>
+          <span style={{ color: t.blue, fontWeight: 900 }}>🔧</span> Rob &nbsp;
+          <span style={{ color: t.rust, fontWeight: 900 }}>🏠</span> Client
+        </p>
+      </div>
+
+      {groups.length === 0 ? (
+        <p style={{ fontSize: 13, color: t.muted, fontStyle: 'italic' }}>No follow-ups to show.</p>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {active.map((f) => (
-            <FollowUpItem key={f.id} f={f} onPatch={(patch) => onPatch(f.id, patch)} onDelete={() => onDelete(f.id)} />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {groups.map(({ stage, items }) => (
+            <div key={stage}>
+              <p style={stageHeader}>{STAGE_LABELS[stage]}</p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {items.map((f) => (
+                  <FollowUpItem key={f.id} f={f} onPatch={(patch) => onPatch(f.id, patch)} onDelete={() => onDelete(f.id)} />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       )}
 
-      {hidden.length > 0 && (
-        <div style={{ marginTop: 10 }}>
-          <button onClick={() => setShowHidden((v) => !v)} style={{ ...btnSmall, padding: '4px 8px' }}>
-            {showHidden ? 'Hide' : 'Show'} archived &amp; paused ({hidden.length})
-          </button>
-          {showHidden && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-              {hidden.map((f) => (
-                <FollowUpItem key={f.id} f={f} onPatch={(patch) => onPatch(f.id, patch)} onDelete={() => onDelete(f.id)} />
-              ))}
-            </div>
-          )}
-        </div>
+      {hiddenCount > 0 && (
+        <button onClick={() => setShowHidden((v) => !v)} style={{ ...btnSmall, padding: '4px 8px', marginTop: 10 }}>
+          {showHidden ? 'Hide' : 'Show'} archived &amp; paused ({hiddenCount})
+        </button>
       )}
     </div>
   )
@@ -278,7 +297,7 @@ const PAUSE_PRESETS = [
   { label: '2 weeks', days: 14 },
 ]
 
-// ── A single follow-up card: Done / Edit / Archive / Pause / Delete ──
+// ── A single follow-up card: owner icon, stage reassign, Done/Edit/Archive/Pause/Delete ──
 function FollowUpItem({ f, onPatch, onDelete }: { f: FollowUp; onPatch: (p: FollowUpPatch) => void; onDelete: () => void }) {
   const [editing, setEditing] = useState(false)
   const [pausing, setPausing] = useState(false)
@@ -337,6 +356,12 @@ function FollowUpItem({ f, onPatch, onDelete }: { f: FollowUp; onPatch: (p: Foll
         </div>
       ) : (
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <span
+            title={f.owner === 'client' ? 'Client to act' : 'Rob to act'}
+            style={{ fontSize: 15, color: f.owner === 'client' ? t.rust : t.blue, flexShrink: 0, lineHeight: '1.4' }}
+          >
+            {f.owner === 'client' ? '🏠' : '🔧'}
+          </span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontWeight: 800, fontSize: 14, textDecoration: done ? 'line-through' : 'none' }}>{f.title}</p>
             {f.details && <p style={{ fontSize: 12.5, color: t.muted, marginTop: 2 }}>{f.details}</p>}
@@ -361,6 +386,16 @@ function FollowUpItem({ f, onPatch, onDelete }: { f: FollowUp; onPatch: (p: Foll
                   />
                 </>
               )}
+              <select
+                value={f.stage}
+                onChange={(e) => onPatch({ stage: e.target.value as Stage })}
+                style={{ border: `1px solid ${t.line}`, fontSize: 10.5, padding: '2px 4px', fontFamily: 'monospace', background: '#fff', color: t.muted }}
+                title="Reassign build stage"
+              >
+                {STAGES.map((s) => (
+                  <option key={s} value={s}>{STAGE_LABELS[s]}</option>
+                ))}
+              </select>
             </div>
           </div>
           <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>

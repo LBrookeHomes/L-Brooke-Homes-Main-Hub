@@ -1,7 +1,7 @@
 import { Router, Response } from 'express'
 import prisma from '../lib/prisma'
 import { requireAuth } from '../middleware/auth'
-import { analyzeMeeting, fetchLinkText, MeetingAIError } from '../services/meetingAI'
+import { analyzeMeeting, fetchLinkText, MeetingAIError, STAGES } from '../services/meetingAI'
 import { sendDailyDigest, resumeExpiredPauses } from '../services/meetingReminders'
 
 const router = Router()
@@ -95,14 +95,16 @@ router.post('/analyze', async (req, res: Response) => {
         sourceType,
         sourceUrl,
         transcript,
-        summary: analysis.summary,
-        decisions: analysis.decisions,
+        attendees: analysis.attendees,
+        confirmed: analysis.confirmed,
         status: 'analyzed',
         followUps: {
           create: analysis.followUps.map((f) => ({
             title: f.title,
             details: f.details || null,
             dueDate: f.dueDate ? new Date(f.dueDate) : null,
+            owner: f.owner,
+            stage: f.stage,
           })),
         },
       },
@@ -135,7 +137,7 @@ router.delete('/:id', async (req, res: Response) => {
 const FOLLOWUP_STATUSES = ['open', 'done', 'archived', 'paused'] as const
 
 router.patch('/:id/followups/:fid', async (req, res: Response) => {
-  const { status, dueDate, pausedUntil, title, details } = req.body ?? {}
+  const { status, dueDate, pausedUntil, title, details, owner, stage } = req.body ?? {}
   const data: Record<string, unknown> = {}
   if (status !== undefined) {
     if (!FOLLOWUP_STATUSES.includes(status)) {
@@ -154,6 +156,20 @@ router.patch('/:id/followups/:fid', async (req, res: Response) => {
   if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null
   if (title !== undefined) data.title = title
   if (details !== undefined) data.details = details || null
+  if (owner !== undefined) {
+    if (owner !== 'rob' && owner !== 'client') {
+      res.status(400).json({ error: 'Invalid owner' })
+      return
+    }
+    data.owner = owner
+  }
+  if (stage !== undefined) {
+    if (!STAGES.includes(stage)) {
+      res.status(400).json({ error: 'Invalid stage' })
+      return
+    }
+    data.stage = stage
+  }
 
   try {
     const followUp = await prisma.followUp.update({

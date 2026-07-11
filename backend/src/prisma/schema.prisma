@@ -399,6 +399,8 @@ model Meeting {
   transcript  String // raw text used for analysis
   summary     String? // the crux / write-up
   decisions   String? // key decisions & risks (markdown or newline list)
+  attendees   String? // short comma list if the AI can infer it, else null
+  confirmed   String[]   @default([]) // settled/non-actionable decisions, short bullets
   status      String     @default("analyzed") // "analyzing" | "analyzed" | "failed"
   meetingDate DateTime?
   createdAt   DateTime   @default(now())
@@ -406,6 +408,12 @@ model Meeting {
   followUps   FollowUp[]
 }
 
+// Fixed 8-stage build-phase tagging for meeting follow-ups. Intentionally
+// separate from the MilestonePhase enum (used for project milestones
+// elsewhere in the hub) — that enum is too coarse for this, and meetings
+// aren't tied to a specific project. Keys, in order:
+// site_foundation, framing, rough_in, insulation_drywall, interior_finishes,
+// exterior_sitework, fixtures_systems, punch_closeout.
 model FollowUp {
   id          String    @id @default(cuid())
   meetingId   String
@@ -413,6 +421,8 @@ model FollowUp {
   title       String
   details     String?
   dueDate     DateTime?
+  owner       String    @default("rob") // "rob" | "client"
+  stage       String    @default("interior_finishes") // one of the 8 stage keys above
   status      String    @default("open") // "open" | "done" | "archived" | "paused"
   pausedUntil DateTime? // set when status = "paused"; auto-resumes to "open" once past
   remindedOn  DateTime? // last date a digest included this (avoid dupes)

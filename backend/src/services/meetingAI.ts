@@ -5,16 +5,37 @@ const ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL || 'https://api.anthro
 const ANTHROPIC_MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5'
 const ANTHROPIC_VERSION = '2023-06-01'
 
+// Fixed 8-stage build-phase tagging for meeting follow-ups — see the
+// comment above `model FollowUp` in schema.prisma for why this is
+// intentionally separate from the MilestonePhase enum used elsewhere.
+export const STAGES = [
+  'site_foundation',
+  'framing',
+  'rough_in',
+  'insulation_drywall',
+  'interior_finishes',
+  'exterior_sitework',
+  'fixtures_systems',
+  'punch_closeout',
+] as const
+
+export type Stage = typeof STAGES[number]
+export type Owner = 'rob' | 'client'
+
+const DEFAULT_STAGE: Stage = 'interior_finishes'
+
 export interface AnalyzedFollowUp {
   title: string
   details: string
   dueDate: string | null // ISO date (YYYY-MM-DD) or null
+  owner: Owner
+  stage: Stage
 }
 
 export interface MeetingAnalysis {
   title: string
-  summary: string
-  decisions: string
+  attendees: string | null
+  confirmed: string[]
   followUps: AnalyzedFollowUp[]
 }
 
@@ -23,18 +44,20 @@ export class MeetingAIError extends Error {}
 
 const SYSTEM_PROMPT = `You are the meeting follow-up assistant for Rob, a busy custom-home builder who runs his business himself. He manages everything personally — there are no employees to delegate to, so every follow-up is his to do.
 
-Given a meeting transcript, produce a tight, practical brief. Write for someone with no time to waste: skip filler, surface what actually matters.
+Granola already gives Rob a narrative summary of the meeting elsewhere — your job is NOT to repeat that. Your job is to turn the meeting into "who needs to do what, and where in the build it falls," at a glance.
 
 Return ONLY a single JSON object (no prose, no markdown fences) with exactly these keys:
 - "title": a short descriptive title for the meeting, inferred from the content.
-- "summary": the crux of the meeting — what it was about and what came out of it, in a few clear sentences or short bullet lines.
-- "decisions": the key decisions made and any risks or open concerns — what was decided, or what's at risk. Newline-separated list. Empty string if none.
-- "followUps": at most the 2-3 most important, time-sensitive action items Rob genuinely needs to schedule and not forget. Do not list every discussion point — be selective. Each item is an object with:
-    - "title": a concrete action Rob himself takes, phrased as something to DO ("Text the homeowners the budget list"), never as something that happened or was discussed ("Budget list was discussed" is wrong — that belongs in decisions, not here).
+- "attendees": a short comma-separated list of names if the transcript makes them clear (e.g. "Rob, John (framer), the Hendersons"), otherwise null. Do not guess if it's unclear.
+- "confirmed": an array of short bullet strings for settled facts/decisions with NO pending action — materials chosen, layout finalized, prices agreed, etc. These must NOT also appear in followUps. Empty array if nothing was settled.
+- "followUps": at most 5-6 items TOTAL (combining both owners) — still selective, only genuine actions someone needs to schedule or track, never a restatement of something in "confirmed". Each item is an object with:
+    - "title": a concrete action, phrased as something to DO ("Text the homeowners the budget list"), never as something that happened or was discussed.
     - "details": one line of useful context, or "".
     - "dueDate": an ISO date string "YYYY-MM-DD" when the transcript implies timing (e.g. "by next Friday", "before the pour"); otherwise null. Interpret relative dates against the meeting date provided.
+    - "owner": "rob" if Rob does it himself — including "talk to trade partner X about Y", that is still Rob's action — or "client" if it's blocked on the homeowner deciding, approving, or providing something.
+    - "stage": the single best-fit build stage for this task, chosen from EXACTLY these 8 keys (use the key string itself, nothing else): "site_foundation", "framing", "rough_in", "insulation_drywall", "interior_finishes", "exterior_sitework", "fixtures_systems", "punch_closeout". Never invent a new stage name.
 
-Do not duplicate content between "decisions" and "followUps": decisions capture what was decided or is at risk; followUps are only forward-looking actions Rob must actively do. If a decision doesn't require Rob to do something next, it belongs only in decisions, not as a follow-up. If there are no real action items, return an empty array — do not pad it to reach 2-3.`
+Do not duplicate content between "confirmed" and "followUps": confirmed captures what was decided or is settled with nothing left to do; followUps are only forward-looking actions someone must actively take. If there are no real action items, return an empty array — do not pad it to reach 5-6.`
 
 /** Strip markdown code fences and isolate the JSON object, then parse. */
 function parseAnalysisJson(raw: string): MeetingAnalysis {
@@ -61,14 +84,19 @@ function parseAnalysisJson(raw: string): MeetingAnalysis {
           title: String(f.title).trim(),
           details: typeof f.details === 'string' ? f.details.trim() : '',
           dueDate: typeof f.dueDate === 'string' && f.dueDate.trim() ? f.dueDate.trim() : null,
+          owner: f.owner === 'client' ? 'client' : 'rob',
+          stage: STAGES.includes(f.stage) ? f.stage : DEFAULT_STAGE,
         }))
-        // Defensive cap — the prompt asks for 2-3, but don't trust the model to always comply.
-        .slice(0, 3)
+        // Defensive cap — the prompt asks for 5-6, but don't trust the model to always comply.
+        .slice(0, 6)
+    : []
+  const confirmed: string[] = Array.isArray(obj.confirmed)
+    ? obj.confirmed.filter((c: any) => typeof c === 'string' && c.trim()).map((c: string) => c.trim())
     : []
   return {
     title: typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : 'Untitled meeting',
-    summary: typeof obj.summary === 'string' ? obj.summary.trim() : '',
-    decisions: typeof obj.decisions === 'string' ? obj.decisions.trim() : '',
+    attendees: typeof obj.attendees === 'string' && obj.attendees.trim() ? obj.attendees.trim() : null,
+    confirmed,
     followUps,
   }
 }
