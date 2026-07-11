@@ -50,7 +50,7 @@ Granola already gives Rob a narrative summary of the meeting elsewhere — your 
 Return ONLY a single JSON object (no prose, no markdown fences) with exactly these keys:
 - "title": a short descriptive title for the meeting, inferred from the content.
 - "attendees": a short comma-separated list of names if the transcript makes them clear (e.g. "Rob, John (framer), the Hendersons"), otherwise null. Do not guess if it's unclear.
-- "confirmed": an array of short bullet strings for settled facts/decisions with NO pending action — materials chosen, layout finalized, prices agreed, etc. These must NOT also appear in followUps. Empty array if nothing was settled.
+- "confirmed": an array of short bullet strings for settled facts/decisions with NO pending action — materials chosen, layout finalized, prices agreed, etc. These must NOT also appear in followUps. Aim for the 3-6 most useful bullets, not an exhaustive transcript recap. Empty array if nothing was settled.
 - "followUps": at most 5-6 items TOTAL (combining both owners) — still selective, only genuine actions someone needs to schedule or track, never a restatement of something in "confirmed". Each item is an object with:
     - "title": a concrete action, phrased as something to DO ("Text the homeowners the budget list"), never as something that happened or was discussed.
     - "details": one line of useful context, or "".
@@ -61,22 +61,97 @@ Return ONLY a single JSON object (no prose, no markdown fences) with exactly the
 
 Do not duplicate content between "confirmed" and "followUps": confirmed captures what was decided or is settled with nothing left to do; followUps are only forward-looking actions someone must actively take. If there are no real action items, return an empty array — do not pad it to reach 5-6.`
 
-/** Strip markdown code fences and isolate the JSON object, then parse. */
+/**
+ * Find the first complete top-level {...} object in text, respecting string
+ * boundaries (so braces inside string values, or stray braces in any prose
+ * around the JSON, can't throw off the match). Returns null if the braces
+ * never balance — i.e. the response was cut off before the object closed.
+ */
+function extractJsonObject(text: string): string | null {
+  const start = text.indexOf('{')
+  if (start === -1) return null
+  let depth = 0
+  let inString = false
+  let escaped = false
+  for (let i = start; i < text.length; i++) {
+    const ch = text[i]
+    if (inString) {
+      if (escaped) { escaped = false; continue }
+      if (ch === '\\') { escaped = true; continue }
+      if (ch === '"') inString = false
+      continue
+    }
+    if (ch === '"') { inString = true; continue }
+    if (ch === '{') depth++
+    else if (ch === '}') {
+      depth--
+      if (depth === 0) return text.slice(start, i + 1)
+    }
+  }
+  return null
+}
+
+/**
+ * Escape raw control characters (literal newlines/tabs) found inside JSON
+ * string literals. LLMs frequently emit a real newline inside a string value
+ * (e.g. a multi-sentence "details" field) instead of the escaped `\n` JSON
+ * requires — this is the single most common way an otherwise-correct-looking
+ * response fails strict JSON.parse.
+ */
+function escapeRawControlCharsInStrings(text: string): string {
+  let out = ''
+  let inString = false
+  let escaped = false
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]
+    if (!inString) {
+      if (ch === '"') inString = true
+      out += ch
+      continue
+    }
+    if (escaped) { out += ch; escaped = false; continue }
+    if (ch === '\\') { out += ch; escaped = true; continue }
+    if (ch === '"') { inString = false; out += ch; continue }
+    if (ch === '\n') { out += '\\n'; continue }
+    if (ch === '\r') { out += '\\r'; continue }
+    if (ch === '\t') { out += '\\t'; continue }
+    out += ch
+  }
+  return out
+}
+
+/** Drop trailing commas before a closing } or ] — another common LLM slip. */
+function stripTrailingCommas(text: string): string {
+  return text.replace(/,(\s*[}\]])/g, '$1')
+}
+
+/** Strip markdown code fences, isolate the JSON object, repair common LLM
+ * JSON artifacts, then parse. Logs the raw response on any failure so a
+ * real production case can be diagnosed from the server logs. */
 function parseAnalysisJson(raw: string): MeetingAnalysis {
   let text = raw.trim()
   // Remove ```json ... ``` or ``` ... ``` fences if present.
   const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
   if (fence) text = fence[1].trim()
-  // Fall back to the outermost { ... } if there is surrounding prose.
-  if (!text.startsWith('{')) {
-    const first = text.indexOf('{')
-    const last = text.lastIndexOf('}')
-    if (first !== -1 && last > first) text = text.slice(first, last + 1)
+
+  const extracted = extractJsonObject(text)
+  if (!extracted) {
+    console.error(
+      `Meeting analysis: no complete JSON object found in the AI response (likely truncated). Raw response (first 4000 chars):\n${raw.slice(0, 4000)}`
+    )
+    throw new MeetingAIError(
+      'The AI response was cut off before it finished. Please try again — if it keeps happening, try a shorter transcript.'
+    )
   }
+  text = stripTrailingCommas(escapeRawControlCharsInStrings(extracted))
+
   let obj: any
   try {
     obj = JSON.parse(text)
-  } catch {
+  } catch (err) {
+    console.error(
+      `Meeting analysis: failed to parse AI response as JSON (${(err as Error).message}). Raw response (first 4000 chars):\n${raw.slice(0, 4000)}`
+    )
     throw new MeetingAIError('The AI returned an unreadable response. Please try again.')
   }
   const followUps: AnalyzedFollowUp[] = Array.isArray(obj.followUps)
@@ -94,7 +169,11 @@ function parseAnalysisJson(raw: string): MeetingAnalysis {
         .slice(0, 6)
     : []
   const confirmed: string[] = Array.isArray(obj.confirmed)
-    ? obj.confirmed.filter((c: any) => typeof c === 'string' && c.trim()).map((c: string) => c.trim())
+    ? obj.confirmed
+        .filter((c: any) => typeof c === 'string' && c.trim())
+        .map((c: string) => c.trim())
+        // Defensive cap, same reasoning as followUps below.
+        .slice(0, 8)
     : []
   return {
     title: typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : 'Untitled meeting',
@@ -127,7 +206,11 @@ export async function analyzeMeeting(
       },
       body: JSON.stringify({
         model: ANTHROPIC_MODEL,
-        max_tokens: 2048,
+        // Attendees + confirmed[] + up to 6 follow-ups (each with title,
+        // details, dueDate, tag, owner, stage) can add up for a real
+        // meeting — too low a budget here truncates the JSON mid-object,
+        // which used to surface as an opaque "unreadable response" error.
+        max_tokens: 4096,
         system: SYSTEM_PROMPT,
         messages: [
           {
@@ -154,6 +237,16 @@ export async function analyzeMeeting(
     : ''
   if (!textOut.trim()) {
     throw new MeetingAIError('The AI returned an empty response. Please try again.')
+  }
+  // The API tells us directly when it ran out of budget mid-response —
+  // trust that over trying to parse what is known to be incomplete JSON.
+  if (data?.stop_reason === 'max_tokens') {
+    console.error(
+      `Meeting analysis: Claude response truncated (stop_reason=max_tokens). Raw response (first 4000 chars):\n${textOut.slice(0, 4000)}`
+    )
+    throw new MeetingAIError(
+      'The meeting was too long for the AI to fully analyze in one pass. Please try again, or trim the transcript a bit.'
+    )
   }
   return parseAnalysisJson(textOut)
 }
