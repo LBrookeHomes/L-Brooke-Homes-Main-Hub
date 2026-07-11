@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { meetingsApi, type FollowUp, type UpcomingFollowUp } from '../../api/meetings'
+import { meetingsApi, type FollowUp } from '../../api/meetings'
 import GCLayout from '../../components/GCLayout/GCLayout'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { t } from '../../theme'
@@ -21,16 +21,15 @@ const btnGhost: React.CSSProperties = {
   background: 'transparent', border: `2px solid ${t.line}`, color: t.ink, padding: '9px 14px',
   cursor: 'pointer', fontSize: '0.75rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '0.05em',
 }
+const btnSmall: React.CSSProperties = {
+  background: 'transparent', border: `1.5px solid ${t.line}`, color: t.muted, padding: '4px 10px',
+  cursor: 'pointer', fontSize: 11, fontWeight: 800, textTransform: 'uppercase',
+}
 const sectionLabel: React.CSSProperties = {
   fontFamily: 'monospace', fontSize: 10, fontWeight: 900, textTransform: 'uppercase',
   letterSpacing: '0.1em', color: t.muted, marginBottom: 8,
 }
 
-function todayStart() {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d
-}
 function fmtDate(iso: string | null): string {
   if (!iso) return 'No due date'
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
@@ -38,7 +37,7 @@ function fmtDate(iso: string | null): string {
 function dueClass(iso: string | null): 'overdue' | 'today' | 'future' | 'none' {
   if (!iso) return 'none'
   const due = new Date(iso); due.setHours(0, 0, 0, 0)
-  const now = todayStart()
+  const now = new Date(); now.setHours(0, 0, 0, 0)
   if (due < now) return 'overdue'
   if (due.getTime() === now.getTime()) return 'today'
   return 'future'
@@ -48,6 +47,14 @@ function dueColor(c: ReturnType<typeof dueClass>) {
   if (c === 'today') return t.amber
   return t.muted
 }
+function isoDaysFromNow(days: number): string {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+type FollowUpPatch = Parameters<typeof meetingsApi.updateFollowUp>[2]
 
 export default function MeetingsPage() {
   const qc = useQueryClient()
@@ -57,16 +64,13 @@ export default function MeetingsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   const { data: meetings = [] } = useQuery({ queryKey: ['meetings'], queryFn: meetingsApi.list })
-  const { data: upcoming = [] } = useQuery({ queryKey: ['meetings', 'upcoming'], queryFn: meetingsApi.upcoming })
   const { data: selected } = useQuery({
     queryKey: ['meetings', selectedId],
     queryFn: () => meetingsApi.get(selectedId!),
     enabled: !!selectedId,
   })
 
-  const invalidateAll = () => {
-    qc.invalidateQueries({ queryKey: ['meetings'] })
-  }
+  const invalidateAll = () => qc.invalidateQueries({ queryKey: ['meetings'] })
 
   const analyzeMut = useMutation({
     mutationFn: () => meetingsApi.analyze({ link: link || undefined, text: text || undefined }),
@@ -91,157 +95,129 @@ export default function MeetingsPage() {
   })
 
   const followUpMut = useMutation({
-    mutationFn: ({ mid, fid, patch }: { mid: string; fid: string; patch: Parameters<typeof meetingsApi.updateFollowUp>[2] }) =>
+    mutationFn: ({ mid, fid, patch }: { mid: string; fid: string; patch: FollowUpPatch }) =>
       meetingsApi.updateFollowUp(mid, fid, patch),
+    onSuccess: () => invalidateAll(),
+  })
+
+  const deleteFollowUpMut = useMutation({
+    mutationFn: ({ mid, fid }: { mid: string; fid: string }) => meetingsApi.removeFollowUp(mid, fid),
     onSuccess: () => invalidateAll(),
   })
 
   const canAnalyze = (!!link.trim() || !!text.trim()) && !analyzeMut.isPending
 
+  const digestLabel = digestMut.isPending
+    ? 'Sending…'
+    : digestMut.isSuccess
+      ? (digestMut.data?.sent ? 'Digest sent ✓' : (digestMut.data?.reason || 'Nothing due'))
+      : 'Email me a digest'
+
   return (
     <GCLayout>
-      <div style={{ maxWidth: 1080, margin: '0 auto', padding: isMobile ? '20px 14px 80px' : '28px 24px 80px' }}>
-        <div style={{ marginBottom: '1.5rem' }}>
-          <h1 style={{ fontSize: 28, fontWeight: 900, textTransform: 'uppercase', marginBottom: 4 }}>Meetings</h1>
-          <p style={{ fontSize: 13, color: t.muted }}>Paste a meeting — get a brief, decisions, and follow-ups you won't forget</p>
+      <div style={{ maxWidth: 760, margin: '0 auto', padding: isMobile ? '20px 14px 80px' : '28px 24px 80px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: 12, marginBottom: '1.5rem' }}>
+          <div>
+            <h1 style={{ fontSize: 28, fontWeight: 900, textTransform: 'uppercase', marginBottom: 4 }}>Meetings</h1>
+            <p style={{ fontSize: 13, color: t.muted }}>Paste a meeting — get a brief, decisions, and follow-ups you won't forget</p>
+          </div>
+          <button onClick={() => digestMut.mutate()} disabled={digestMut.isPending} style={{ ...btnGhost, padding: '7px 14px', fontSize: 11, whiteSpace: 'nowrap' }}>
+            {digestLabel}
+          </button>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 320px', gap: 20, alignItems: 'start' }}>
-          {/* ── Main column ──────────────────────────────── */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-            {/* New meeting */}
-            <div style={{ background: t.card, border: `2px solid ${t.line}` }}>
-              <div style={{ background: t.ink, padding: '10px 16px' }}>
-                <p style={{ color: '#fff', fontWeight: 900, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>New Meeting</p>
-              </div>
-              <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                <label style={labelStyle}>Granola link
-                  <input style={inputStyle} value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://notes.granola.ai/…" />
-                </label>
-                <label style={labelStyle}>Or paste transcript
-                  <textarea
-                    style={{ ...inputStyle, minHeight: 120, resize: 'vertical', fontFamily: 'inherit' }}
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    placeholder="Paste the meeting transcript or notes here…"
-                  />
-                </label>
-                {analyzeMut.isError && (
-                  <p style={{ fontSize: '0.82rem', color: t.red, fontFamily: 'monospace', margin: 0 }}>
-                    {(analyzeMut.error as Error).message}
-                  </p>
-                )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <button onClick={() => analyzeMut.mutate()} disabled={!canAnalyze} style={{ ...btnPrimary, opacity: canAnalyze ? 1 : 0.5 }}>
-                    {analyzeMut.isPending ? 'Analyzing…' : 'Analyze'}
-                  </button>
-                  {analyzeMut.isPending && (
-                    <span style={{ fontSize: 12, color: t.muted, fontStyle: 'italic' }}>Reading meeting and writing summary…</span>
-                  )}
-                </div>
-              </div>
+          {/* New meeting */}
+          <div style={{ background: t.card, border: `2px solid ${t.line}` }}>
+            <div style={{ background: t.ink, padding: '10px 16px' }}>
+              <p style={{ color: '#fff', fontWeight: 900, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>New Meeting</p>
             </div>
-
-            {/* Meeting brief */}
-            {selected && (
-              <div style={{ background: t.card, border: `2px solid ${t.line}` }}>
-                <div style={{ background: t.ink, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-                  <p style={{ color: '#fff', fontWeight: 900, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.04em', margin: 0 }}>{selected.title}</p>
-                  <button onClick={() => removeMut.mutate(selected.id)} style={{ background: 'transparent', border: '1.5px solid rgba(255,255,255,0.3)', color: 'rgba(255,255,255,0.8)', padding: '3px 9px', cursor: 'pointer', fontSize: 10, fontWeight: 800, textTransform: 'uppercase' }}>Delete</button>
-                </div>
-                <div style={{ padding: '1rem 1.1rem', display: 'flex', flexDirection: 'column', gap: 18 }}>
-                  {selected.summary && (
-                    <div>
-                      <p style={sectionLabel}>Summary</p>
-                      <p style={{ fontSize: 14, lineHeight: 1.55, whiteSpace: 'pre-wrap', color: t.ink }}>{selected.summary}</p>
-                    </div>
-                  )}
-                  {selected.decisions && (
-                    <div>
-                      <p style={sectionLabel}>Key Decisions &amp; Risks</p>
-                      <p style={{ fontSize: 14, lineHeight: 1.55, whiteSpace: 'pre-wrap', color: t.ink }}>{selected.decisions}</p>
-                    </div>
-                  )}
-                  <div>
-                    <p style={sectionLabel}>Follow-Up Tasks ({selected.followUps.length})</p>
-                    {selected.followUps.length === 0 ? (
-                      <p style={{ fontSize: 13, color: t.muted, fontStyle: 'italic' }}>No follow-ups from this meeting.</p>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {selected.followUps.map((f) => (
-                          <FollowUpItem
-                            key={f.id}
-                            f={f}
-                            onPatch={(patch) => followUpMut.mutate({ mid: selected.id, fid: f.id, patch })}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Previous meetings */}
-            <div>
-              <p style={sectionLabel}>Previous Meetings</p>
-              {meetings.length === 0 ? (
-                <div style={{ border: `2px dashed ${t.sand}`, padding: '2rem', textAlign: 'center' }}>
-                  <p style={{ fontSize: 13, color: t.muted }}>No meetings yet. Paste one above to get started.</p>
-                </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {meetings.map((m) => (
-                    <button
-                      key={m.id}
-                      onClick={() => setSelectedId(m.id)}
-                      style={{
-                        textAlign: 'left', background: selectedId === m.id ? t.paper : '#fff',
-                        border: `2px solid ${selectedId === m.id ? t.rust : t.line}`, padding: '10px 14px', cursor: 'pointer',
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
-                      }}
-                    >
-                      <span style={{ fontWeight: 800, fontSize: 14 }}>{m.title}</span>
-                      <span style={{ fontFamily: 'monospace', fontSize: 11, color: t.muted, whiteSpace: 'nowrap' }}>
-                        {m.followUpCount} follow-up{m.followUpCount === 1 ? '' : 's'} · {new Date(m.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                      </span>
-                    </button>
-                  ))}
-                </div>
+            <div style={{ padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+              <label style={labelStyle}>Granola link
+                <input style={inputStyle} value={link} onChange={(e) => setLink(e.target.value)} placeholder="https://notes.granola.ai/…" />
+              </label>
+              <label style={labelStyle}>Or paste transcript
+                <textarea
+                  style={{ ...inputStyle, minHeight: 120, resize: 'vertical', fontFamily: 'inherit' }}
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  placeholder="Paste the meeting transcript or notes here…"
+                />
+              </label>
+              {analyzeMut.isError && (
+                <p style={{ fontSize: '0.82rem', color: t.red, fontFamily: 'monospace', margin: 0 }}>
+                  {(analyzeMut.error as Error).message}
+                </p>
               )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <button onClick={() => analyzeMut.mutate()} disabled={!canAnalyze} style={{ ...btnPrimary, opacity: canAnalyze ? 1 : 0.5 }}>
+                  {analyzeMut.isPending ? 'Analyzing…' : 'Analyze'}
+                </button>
+                {analyzeMut.isPending && (
+                  <span style={{ fontSize: 12, color: t.muted, fontStyle: 'italic' }}>Reading meeting and writing summary…</span>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* ── Follow-ups due panel ─────────────────────── */}
-          <div style={{ background: t.card, border: `2px solid ${t.line}`, position: isMobile ? 'static' : 'sticky', top: 20 }}>
-            <div style={{ background: t.ink, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <p style={{ color: '#fff', fontWeight: 900, fontSize: '0.8rem', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0 }}>Follow-ups Due</p>
-              <span style={{ fontFamily: 'monospace', fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>{upcoming.length}</span>
+          {/* Meeting brief */}
+          {selected && (
+            <div style={{ background: t.card, border: `2px solid ${t.line}` }}>
+              <div style={{ background: t.ink, padding: '10px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                <p style={{ color: '#fff', fontWeight: 900, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.04em', margin: 0 }}>{selected.title}</p>
+                <button onClick={() => removeMut.mutate(selected.id)} style={{ background: 'transparent', border: '1.5px solid rgba(255,255,255,0.3)', color: 'rgba(255,255,255,0.8)', padding: '3px 9px', cursor: 'pointer', fontSize: 10, fontWeight: 800, textTransform: 'uppercase' }}>Delete</button>
+              </div>
+              <div style={{ padding: '1rem 1.1rem', display: 'flex', flexDirection: 'column', gap: 18 }}>
+                {selected.summary && (
+                  <div>
+                    <p style={sectionLabel}>Summary</p>
+                    <p style={{ fontSize: 14, lineHeight: 1.55, whiteSpace: 'pre-wrap', color: t.ink }}>{selected.summary}</p>
+                  </div>
+                )}
+                {selected.decisions && (
+                  <div>
+                    <p style={sectionLabel}>Key Decisions &amp; Risks</p>
+                    <p style={{ fontSize: 14, lineHeight: 1.55, whiteSpace: 'pre-wrap', color: t.ink }}>{selected.decisions}</p>
+                  </div>
+                )}
+                <FollowUpList
+                  meetingId={selected.id}
+                  followUps={selected.followUps}
+                  onPatch={(fid, patch) => followUpMut.mutate({ mid: selected.id, fid, patch })}
+                  onDelete={(fid) => deleteFollowUpMut.mutate({ mid: selected.id, fid })}
+                />
+              </div>
             </div>
-            <div style={{ padding: '0.75rem' }}>
-              {upcoming.length === 0 ? (
-                <p style={{ fontSize: 13, color: t.muted, fontStyle: 'italic', padding: '0.5rem' }}>Nothing outstanding. 🎉</p>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {upcoming.map((f) => (
-                    <UpcomingItem
-                      key={f.id}
-                      f={f}
-                      onOpen={() => setSelectedId(f.meeting.id)}
-                      onDone={() => followUpMut.mutate({ mid: f.meeting.id, fid: f.id, patch: { status: 'done' } })}
-                    />
-                  ))}
-                </div>
-              )}
-              <button
-                onClick={() => digestMut.mutate()}
-                disabled={digestMut.isPending}
-                style={{ ...btnGhost, width: '100%', marginTop: 10, padding: '7px 0', fontSize: 11 }}
-              >
-                {digestMut.isPending ? 'Sending…' : digestMut.isSuccess ? (digestMut.data?.sent ? 'Digest sent ✓' : (digestMut.data?.reason || 'Nothing due')) : 'Email me a digest'}
-              </button>
-            </div>
+          )}
+
+          {/* Previous meetings */}
+          <div>
+            <p style={sectionLabel}>Previous Meetings</p>
+            {meetings.length === 0 ? (
+              <div style={{ border: `2px dashed ${t.sand}`, padding: '2rem', textAlign: 'center' }}>
+                <p style={{ fontSize: 13, color: t.muted }}>No meetings yet. Paste one above to get started.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {meetings.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setSelectedId(m.id)}
+                    style={{
+                      textAlign: 'left', background: selectedId === m.id ? t.paper : '#fff',
+                      border: `2px solid ${selectedId === m.id ? t.rust : t.line}`, padding: '10px 14px', cursor: 'pointer',
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10,
+                    }}
+                  >
+                    <span style={{ fontWeight: 800, fontSize: 14 }}>{m.title}</span>
+                    <span style={{ fontFamily: 'monospace', fontSize: 11, color: t.muted, whiteSpace: 'nowrap' }}>
+                      {m.followUpCount} follow-up{m.followUpCount === 1 ? '' : 's'} · {new Date(m.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -249,16 +225,79 @@ export default function MeetingsPage() {
   )
 }
 
-// ── Follow-up item in the meeting brief (Done / reschedule / edit) ───
-function FollowUpItem({ f, onPatch }: { f: FollowUp; onPatch: (p: Parameters<typeof meetingsApi.updateFollowUp>[2]) => void }) {
-  const [editing, setEditing] = useState(false)
-  const [title, setTitle] = useState(f.title)
-  const [details, setDetails] = useState(f.details ?? '')
-  const done = f.status === 'done'
-  const c = dueClass(f.dueDate)
+// ── Follow-up list: active items, plus a collapsible archived/paused tray ─
+function FollowUpList({
+  meetingId,
+  followUps,
+  onPatch,
+  onDelete,
+}: {
+  meetingId: string
+  followUps: FollowUp[]
+  onPatch: (fid: string, patch: FollowUpPatch) => void
+  onDelete: (fid: string) => void
+}) {
+  const [showHidden, setShowHidden] = useState(false)
+  const active = followUps.filter((f) => f.status === 'open' || f.status === 'done')
+  const hidden = followUps.filter((f) => f.status === 'archived' || f.status === 'paused')
 
   return (
-    <div style={{ border: `1.5px solid ${t.line}`, background: '#fff', padding: '10px 12px', opacity: done ? 0.55 : 1 }}>
+    <div>
+      <p style={sectionLabel}>Follow-Up Tasks ({active.length})</p>
+      {active.length === 0 ? (
+        <p style={{ fontSize: 13, color: t.muted, fontStyle: 'italic' }}>No active follow-ups from this meeting.</p>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {active.map((f) => (
+            <FollowUpItem key={f.id} f={f} onPatch={(patch) => onPatch(f.id, patch)} onDelete={() => onDelete(f.id)} />
+          ))}
+        </div>
+      )}
+
+      {hidden.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <button onClick={() => setShowHidden((v) => !v)} style={{ ...btnSmall, padding: '4px 8px' }}>
+            {showHidden ? 'Hide' : 'Show'} archived &amp; paused ({hidden.length})
+          </button>
+          {showHidden && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+              {hidden.map((f) => (
+                <FollowUpItem key={f.id} f={f} onPatch={(patch) => onPatch(f.id, patch)} onDelete={() => onDelete(f.id)} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const PAUSE_PRESETS = [
+  { label: '3 days', days: 3 },
+  { label: '1 week', days: 7 },
+  { label: '2 weeks', days: 14 },
+]
+
+// ── A single follow-up card: Done / Edit / Archive / Pause / Delete ──
+function FollowUpItem({ f, onPatch, onDelete }: { f: FollowUp; onPatch: (p: FollowUpPatch) => void; onDelete: () => void }) {
+  const [editing, setEditing] = useState(false)
+  const [pausing, setPausing] = useState(false)
+  const [pauseDays, setPauseDays] = useState(3)
+  const [title, setTitle] = useState(f.title)
+  const [details, setDetails] = useState(f.details ?? '')
+
+  const done = f.status === 'done'
+  const archived = f.status === 'archived'
+  const paused = f.status === 'paused'
+  const inactive = archived || paused
+  const c = dueClass(f.dueDate)
+
+  function confirmDelete() {
+    if (window.confirm(`Permanently delete "${f.title}"?`)) onDelete()
+  }
+
+  return (
+    <div style={{ border: `1.5px solid ${t.line}`, background: '#fff', padding: '10px 12px', opacity: done || inactive ? 0.6 : 1 }}>
       {editing ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <input style={inputStyle} value={title} onChange={(e) => setTitle(e.target.value)} />
@@ -268,53 +307,87 @@ function FollowUpItem({ f, onPatch }: { f: FollowUp; onPatch: (p: Parameters<typ
             <button onClick={() => { onPatch({ title, details }); setEditing(false) }} style={{ ...btnPrimary, padding: '4px 10px', fontSize: 11 }}>Save</button>
           </div>
         </div>
+      ) : pausing ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <p style={{ fontWeight: 800, fontSize: 13 }}>Pause "{f.title}" for…</p>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            {PAUSE_PRESETS.map((p) => (
+              <button
+                key={p.days}
+                onClick={() => setPauseDays(p.days)}
+                style={pauseDays === p.days ? { ...btnPrimary, padding: '4px 10px', fontSize: 11 } : { ...btnGhost, padding: '4px 10px', fontSize: 11 }}
+              >{p.label}</button>
+            ))}
+            <input
+              type="number"
+              min={1}
+              value={pauseDays}
+              onChange={(e) => setPauseDays(Math.max(1, Number(e.target.value) || 1))}
+              style={{ width: 60, border: `1.5px solid ${t.line}`, padding: '4px 6px', fontSize: 12, fontFamily: 'monospace' }}
+            />
+            <span style={{ fontSize: 12, color: t.muted, alignSelf: 'center' }}>days</span>
+          </div>
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+            <button onClick={() => setPausing(false)} style={{ ...btnGhost, padding: '4px 10px', fontSize: 11 }}>Cancel</button>
+            <button
+              onClick={() => { onPatch({ status: 'paused', pausedUntil: isoDaysFromNow(pauseDays) }); setPausing(false) }}
+              style={{ ...btnPrimary, padding: '4px 10px', fontSize: 11 }}
+            >Confirm</button>
+          </div>
+        </div>
       ) : (
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontWeight: 800, fontSize: 14, textDecoration: done ? 'line-through' : 'none' }}>{f.title}</p>
             {f.details && <p style={{ fontSize: 12.5, color: t.muted, marginTop: 2 }}>{f.details}</p>}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: dueColor(c), textTransform: 'uppercase' }}>
-                {c === 'overdue' ? '⚠ ' : ''}{fmtDate(f.dueDate)}
-              </span>
-              <input
-                type="date"
-                value={f.dueDate ? f.dueDate.slice(0, 10) : ''}
-                onChange={(e) => onPatch({ dueDate: e.target.value || null })}
-                style={{ border: `1px solid ${t.line}`, fontSize: 11, padding: '2px 4px', fontFamily: 'monospace', background: '#fff' }}
-                title="Reschedule"
-              />
+              {paused ? (
+                <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: t.blue, textTransform: 'uppercase' }}>
+                  Paused until {fmtDate(f.pausedUntil)}
+                </span>
+              ) : archived ? (
+                <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: t.muted, textTransform: 'uppercase' }}>Archived</span>
+              ) : (
+                <>
+                  <span style={{ fontFamily: 'monospace', fontSize: 11, fontWeight: 800, color: dueColor(c), textTransform: 'uppercase' }}>
+                    {c === 'overdue' ? '⚠ ' : ''}{fmtDate(f.dueDate)}
+                  </span>
+                  <input
+                    type="date"
+                    value={f.dueDate ? f.dueDate.slice(0, 10) : ''}
+                    onChange={(e) => onPatch({ dueDate: e.target.value || null })}
+                    style={{ border: `1px solid ${t.line}`, fontSize: 11, padding: '2px 4px', fontFamily: 'monospace', background: '#fff' }}
+                    title="Reschedule"
+                  />
+                </>
+              )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-            <button
-              onClick={() => onPatch({ status: done ? 'open' : 'done' })}
-              style={{ background: done ? 'transparent' : t.green, border: `1.5px solid ${t.green}`, color: done ? t.green : '#fff', padding: '4px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}
-            >{done ? 'Reopen' : 'Done'}</button>
-            {!done && (
-              <button onClick={() => { setTitle(f.title); setDetails(f.details ?? ''); setEditing(true) }} style={{ background: 'transparent', border: `1.5px solid ${t.line}`, color: t.muted, padding: '4px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}>Edit</button>
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+            {inactive ? (
+              <>
+                <button onClick={() => onPatch({ status: 'open' })} style={{ ...btnSmall, color: t.green, borderColor: t.green }}>Reopen</button>
+                <button onClick={confirmDelete} style={{ ...btnSmall, color: t.red, borderColor: t.red }}>Delete</button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => onPatch({ status: done ? 'open' : 'done' })}
+                  style={{ background: done ? 'transparent' : t.green, border: `1.5px solid ${t.green}`, color: done ? t.green : '#fff', padding: '4px 10px', cursor: 'pointer', fontSize: 11, fontWeight: 800, textTransform: 'uppercase' }}
+                >{done ? 'Reopen' : 'Done'}</button>
+                {!done && (
+                  <>
+                    <button onClick={() => { setTitle(f.title); setDetails(f.details ?? ''); setEditing(true) }} style={btnSmall}>Edit</button>
+                    <button onClick={() => setPausing(true)} style={btnSmall}>Pause</button>
+                    <button onClick={() => onPatch({ status: 'archived' })} style={btnSmall}>Archive</button>
+                  </>
+                )}
+                <button onClick={confirmDelete} style={{ ...btnSmall, color: t.red, borderColor: t.red }}>Delete</button>
+              </>
             )}
           </div>
         </div>
       )}
-    </div>
-  )
-}
-
-// ── Compact item in the "Follow-ups due" side panel ──────────────────
-function UpcomingItem({ f, onOpen, onDone }: { f: UpcomingFollowUp; onOpen: () => void; onDone: () => void }) {
-  const c = dueClass(f.dueDate)
-  const border = c === 'overdue' ? t.red : c === 'today' ? t.amber : t.line
-  return (
-    <div style={{ border: `1.5px solid ${border}`, borderLeft: `4px solid ${border}`, background: '#fff', padding: '8px 10px' }}>
-      <button onClick={onOpen} style={{ display: 'block', textAlign: 'left', background: 'transparent', border: 'none', padding: 0, cursor: 'pointer', width: '100%' }}>
-        <p style={{ fontWeight: 800, fontSize: 13 }}>{f.title}</p>
-        <p style={{ fontFamily: 'monospace', fontSize: 10, color: dueColor(c), textTransform: 'uppercase', marginTop: 3, fontWeight: 800 }}>
-          {c === 'overdue' ? '⚠ Overdue · ' : c === 'today' ? 'Today · ' : ''}{fmtDate(f.dueDate)}
-        </p>
-        <p style={{ fontSize: 11, color: t.muted, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.meeting.title}</p>
-      </button>
-      <button onClick={onDone} style={{ marginTop: 6, background: t.green, border: `1.5px solid ${t.green}`, color: '#fff', padding: '2px 8px', cursor: 'pointer', fontSize: 10, fontWeight: 800, textTransform: 'uppercase' }}>Done</button>
     </div>
   )
 }

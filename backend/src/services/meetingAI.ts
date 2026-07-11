@@ -28,13 +28,13 @@ Given a meeting transcript, produce a tight, practical brief. Write for someone 
 Return ONLY a single JSON object (no prose, no markdown fences) with exactly these keys:
 - "title": a short descriptive title for the meeting, inferred from the content.
 - "summary": the crux of the meeting — what it was about and what came out of it, in a few clear sentences or short bullet lines.
-- "decisions": the key decisions made and any risks or open concerns. Newline-separated list. Empty string if none.
-- "followUps": an array of concrete, action-oriented tasks for Rob. Each item is an object with:
-    - "title": short imperative task ("Call the framing sub about the revised joist spec").
+- "decisions": the key decisions made and any risks or open concerns — what was decided, or what's at risk. Newline-separated list. Empty string if none.
+- "followUps": at most the 2-3 most important, time-sensitive action items Rob genuinely needs to schedule and not forget. Do not list every discussion point — be selective. Each item is an object with:
+    - "title": a concrete action Rob himself takes, phrased as something to DO ("Text the homeowners the budget list"), never as something that happened or was discussed ("Budget list was discussed" is wrong — that belongs in decisions, not here).
     - "details": one line of useful context, or "".
     - "dueDate": an ISO date string "YYYY-MM-DD" when the transcript implies timing (e.g. "by next Friday", "before the pour"); otherwise null. Interpret relative dates against the meeting date provided.
 
-Keep followUps focused — only real, actionable items. If there are none, return an empty array.`
+Do not duplicate content between "decisions" and "followUps": decisions capture what was decided or is at risk; followUps are only forward-looking actions Rob must actively do. If a decision doesn't require Rob to do something next, it belongs only in decisions, not as a follow-up. If there are no real action items, return an empty array — do not pad it to reach 2-3.`
 
 /** Strip markdown code fences and isolate the JSON object, then parse. */
 function parseAnalysisJson(raw: string): MeetingAnalysis {
@@ -62,6 +62,8 @@ function parseAnalysisJson(raw: string): MeetingAnalysis {
           details: typeof f.details === 'string' ? f.details.trim() : '',
           dueDate: typeof f.dueDate === 'string' && f.dueDate.trim() ? f.dueDate.trim() : null,
         }))
+        // Defensive cap — the prompt asks for 2-3, but don't trust the model to always comply.
+        .slice(0, 3)
     : []
   return {
     title: typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : 'Untitled meeting',

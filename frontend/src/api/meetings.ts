@@ -1,7 +1,7 @@
 import { api } from './client'
 
 export type MeetingStatus = 'analyzing' | 'analyzed' | 'failed'
-export type FollowUpStatus = 'open' | 'done' | 'dismissed'
+export type FollowUpStatus = 'open' | 'done' | 'archived' | 'paused'
 
 export interface FollowUp {
   id: string
@@ -10,6 +10,7 @@ export interface FollowUp {
   details: string | null
   dueDate: string | null
   status: FollowUpStatus
+  pausedUntil: string | null
   remindedOn: string | null
   createdAt: string
   updatedAt: string
@@ -63,8 +64,9 @@ export const meetingsApi = {
   updateFollowUp: (
     id: string,
     fid: string,
-    patch: Partial<{ status: FollowUpStatus; dueDate: string | null; title: string; details: string }>
+    patch: Partial<{ status: FollowUpStatus; dueDate: string | null; pausedUntil: string | null; title: string; details: string }>
   ) => api.patch<FollowUp>(`/meetings/${id}/followups/${fid}`, patch),
+  removeFollowUp: (id: string, fid: string) => api.delete<{ ok: true }>(`/meetings/${id}/followups/${fid}`),
   upcoming: () => api.get<UpcomingFollowUp[]>('/meetings/followups/upcoming'),
   runDigest: () => api.post<DigestResult>('/meetings/digest/run'),
 }

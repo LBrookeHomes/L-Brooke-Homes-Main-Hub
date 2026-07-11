@@ -407,14 +407,15 @@ model Meeting {
 }
 
 model FollowUp {
-  id         String    @id @default(cuid())
-  meetingId  String
-  meeting    Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  title      String
-  details    String?
-  dueDate    DateTime?
-  status     String    @default("open") // "open" | "done" | "dismissed"
-  remindedOn DateTime? // last date a digest included this (avoid dupes)
-  createdAt  DateTime  @default(now())
-  updatedAt  DateTime  @updatedAt
+  id          String    @id @default(cuid())
+  meetingId   String
+  meeting     Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  title       String
+  details     String?
+  dueDate     DateTime?
+  status      String    @default("open") // "open" | "done" | "archived" | "paused"
+  pausedUntil DateTime? // set when status = "paused"; auto-resumes to "open" once past
+  remindedOn  DateTime? // last date a digest included this (avoid dupes)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }

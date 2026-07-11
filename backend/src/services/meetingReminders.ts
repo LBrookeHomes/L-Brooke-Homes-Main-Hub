@@ -33,11 +33,26 @@ async function getRob() {
   return prisma.gCUser.findFirst({ orderBy: { createdAt: 'asc' } })
 }
 
+/**
+ * Flip any "paused" follow-ups whose pause window has passed back to "open".
+ * Call this before any read of follow-ups (meeting detail, upcoming list,
+ * digest) so a lapsed pause reappears automatically without a separate job.
+ */
+export async function resumeExpiredPauses(): Promise<void> {
+  await prisma.followUp.updateMany({
+    where: { status: 'paused', pausedUntil: { lte: new Date() } },
+    data: { status: 'open', pausedUntil: null },
+  })
+}
+
 export async function sendDailyDigest(opts: { force?: boolean } = {}): Promise<DigestResult> {
+  await resumeExpiredPauses()
+
   const todayStart = utcDayStart(new Date())
   const tomorrowStart = new Date(todayStart.getTime() + DAY_MS)
   const horizonEnd = new Date(todayStart.getTime() + 3 * DAY_MS) // today + next 2 days
 
+  // status: 'open' naturally excludes 'archived' and still-'paused' follow-ups.
   const due = await prisma.followUp.findMany({
     where: { status: 'open', dueDate: { not: null, lt: horizonEnd } },
     orderBy: [{ dueDate: 'asc' }],

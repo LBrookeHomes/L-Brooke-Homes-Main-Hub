@@ -2,10 +2,15 @@ import { Router, Response } from 'express'
 import prisma from '../lib/prisma'
 import { requireAuth } from '../middleware/auth'
 import { analyzeMeeting, fetchLinkText, MeetingAIError } from '../services/meetingAI'
-import { sendDailyDigest } from '../services/meetingReminders'
+import { sendDailyDigest, resumeExpiredPauses } from '../services/meetingReminders'
 
 const router = Router()
 router.use(requireAuth)
+
+/** True for Prisma's "record to update/delete does not exist" error. */
+function isNotFound(err: unknown): boolean {
+  return !!err && typeof err === 'object' && (err as { code?: string }).code === 'P2025'
+}
 
 // ── List / read ──────────────────────────────────────────────────────
 
@@ -36,6 +41,7 @@ router.get('/', async (_req, res: Response) => {
 // Open follow-ups across all meetings, soonest due first (nulls last).
 // Defined before "/:id" so the path is matched literally.
 router.get('/followups/upcoming', async (_req, res: Response) => {
+  await resumeExpiredPauses()
   const followUps = await prisma.followUp.findMany({
     where: { status: 'open' },
     orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }],
@@ -45,6 +51,7 @@ router.get('/followups/upcoming', async (_req, res: Response) => {
 })
 
 router.get('/:id', async (req, res: Response) => {
+  await resumeExpiredPauses()
   const meeting = await prisma.meeting.findUnique({
     where: { id: req.params.id },
     include: { followUps: { orderBy: [{ dueDate: { sort: 'asc', nulls: 'last' } }, { createdAt: 'asc' }] } },
@@ -113,31 +120,64 @@ router.post('/analyze', async (req, res: Response) => {
 })
 
 router.delete('/:id', async (req, res: Response) => {
-  await prisma.meeting.delete({ where: { id: req.params.id } })
-  res.json({ ok: true })
+  try {
+    await prisma.meeting.delete({ where: { id: req.params.id } })
+    res.json({ ok: true })
+  } catch (err) {
+    if (isNotFound(err)) { res.status(404).json({ error: 'Not found' }); return }
+    console.error('Meeting delete failed:', err)
+    res.status(500).json({ error: 'Failed to delete meeting.' })
+  }
 })
 
-// ── Follow-up updates (mark done / reschedule / edit) ────────────────
+// ── Follow-up updates (mark done / archive / pause / reschedule / edit) ─
+
+const FOLLOWUP_STATUSES = ['open', 'done', 'archived', 'paused'] as const
 
 router.patch('/:id/followups/:fid', async (req, res: Response) => {
-  const { status, dueDate, title, details } = req.body ?? {}
+  const { status, dueDate, pausedUntil, title, details } = req.body ?? {}
   const data: Record<string, unknown> = {}
   if (status !== undefined) {
-    if (!['open', 'done', 'dismissed'].includes(status)) {
+    if (!FOLLOWUP_STATUSES.includes(status)) {
       res.status(400).json({ error: 'Invalid status' })
       return
     }
+    if (status === 'paused' && !pausedUntil) {
+      res.status(400).json({ error: 'pausedUntil is required to pause a follow-up' })
+      return
+    }
     data.status = status
+    // Leaving "paused" (to any other status) always clears pausedUntil.
+    if (status !== 'paused') data.pausedUntil = null
   }
+  if (pausedUntil !== undefined) data.pausedUntil = pausedUntil ? new Date(pausedUntil) : null
   if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null
   if (title !== undefined) data.title = title
   if (details !== undefined) data.details = details || null
 
-  const followUp = await prisma.followUp.update({
-    where: { id: req.params.fid },
-    data,
-  })
-  res.json(followUp)
+  try {
+    const followUp = await prisma.followUp.update({
+      where: { id: req.params.fid },
+      data,
+    })
+    res.json(followUp)
+  } catch (err) {
+    if (isNotFound(err)) { res.status(404).json({ error: 'Not found' }); return }
+    console.error('Follow-up update failed:', err)
+    res.status(500).json({ error: 'Failed to update follow-up.' })
+  }
+})
+
+// Permanently remove a follow-up.
+router.delete('/:id/followups/:fid', async (req, res: Response) => {
+  try {
+    await prisma.followUp.delete({ where: { id: req.params.fid } })
+    res.json({ ok: true })
+  } catch (err) {
+    if (isNotFound(err)) { res.status(404).json({ error: 'Not found' }); return }
+    console.error('Follow-up delete failed:', err)
+    res.status(500).json({ error: 'Failed to delete follow-up.' })
+  }
 })
 
 // ── Manual digest trigger (for testing reminders on demand) ──────────
