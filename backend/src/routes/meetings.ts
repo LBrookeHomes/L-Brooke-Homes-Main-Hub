@@ -103,6 +103,7 @@ router.post('/analyze', async (req, res: Response) => {
             title: f.title,
             details: f.details || null,
             dueDate: f.dueDate ? new Date(f.dueDate) : null,
+            tag: f.tag,
             owner: f.owner,
             stage: f.stage,
           })),

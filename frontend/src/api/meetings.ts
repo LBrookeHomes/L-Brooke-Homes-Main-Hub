@@ -36,6 +36,7 @@ export interface FollowUp {
   title: string
   details: string | null
   dueDate: string | null
+  tag: string | null
   owner: FollowUpOwner
   stage: Stage
   status: FollowUpStatus

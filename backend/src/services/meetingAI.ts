@@ -28,6 +28,7 @@ export interface AnalyzedFollowUp {
   title: string
   details: string
   dueDate: string | null // ISO date (YYYY-MM-DD) or null
+  tag: string | null // short label, e.g. "Plumber", "Mason", "Decision"
   owner: Owner
   stage: Stage
 }
@@ -56,6 +57,7 @@ Return ONLY a single JSON object (no prose, no markdown fences) with exactly the
     - "dueDate": an ISO date string "YYYY-MM-DD" when the transcript implies timing (e.g. "by next Friday", "before the pour"); otherwise null. Interpret relative dates against the meeting date provided.
     - "owner": "rob" if Rob does it himself — including "talk to trade partner X about Y", that is still Rob's action — or "client" if it's blocked on the homeowner deciding, approving, or providing something.
     - "stage": the single best-fit build stage for this task, chosen from EXACTLY these 8 keys (use the key string itself, nothing else): "site_foundation", "framing", "rough_in", "insulation_drywall", "interior_finishes", "exterior_sitework", "fixtures_systems", "punch_closeout". Never invent a new stage name.
+    - "tag": a short (one or two word) label for at-a-glance scanning — the trade or person it concerns if there is one (e.g. "Plumber", "Mason", "Electrician", "Homeowners"), or "Decision" if it's about a choice/approval rather than a specific trade. Use null only if nothing sensible fits.
 
 Do not duplicate content between "confirmed" and "followUps": confirmed captures what was decided or is settled with nothing left to do; followUps are only forward-looking actions someone must actively take. If there are no real action items, return an empty array — do not pad it to reach 5-6.`
 
@@ -84,6 +86,7 @@ function parseAnalysisJson(raw: string): MeetingAnalysis {
           title: String(f.title).trim(),
           details: typeof f.details === 'string' ? f.details.trim() : '',
           dueDate: typeof f.dueDate === 'string' && f.dueDate.trim() ? f.dueDate.trim() : null,
+          tag: typeof f.tag === 'string' && f.tag.trim() ? f.tag.trim().slice(0, 24) : null,
           owner: f.owner === 'client' ? 'client' : 'rob',
           stage: STAGES.includes(f.stage) ? f.stage : DEFAULT_STAGE,
         }))

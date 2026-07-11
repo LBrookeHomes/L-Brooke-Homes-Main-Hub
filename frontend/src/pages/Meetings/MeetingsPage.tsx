@@ -58,6 +58,17 @@ function isoDaysFromNow(days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+// Tags are free-text (AI-inferred trade/decision labels), so colors are
+// assigned deterministically from a fixed palette rather than a lookup
+// table — same bordered-chip look as the trade/status pills elsewhere in
+// the hub (see ContractorsRoster's tradeChip).
+const TAG_PALETTE = [t.blue, t.green, t.amber, t.rust, t.muted] as const
+function tagColor(tag: string): string {
+  let hash = 0
+  for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) >>> 0
+  return TAG_PALETTE[hash % TAG_PALETTE.length]
+}
+
 type FollowUpPatch = Parameters<typeof meetingsApi.updateFollowUp>[2]
 
 export default function MeetingsPage() {
@@ -363,7 +374,17 @@ function FollowUpItem({ f, onPatch, onDelete }: { f: FollowUp; onPatch: (p: Foll
             {f.owner === 'client' ? '🏠' : '🔧'}
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <p style={{ fontWeight: 800, fontSize: 14, textDecoration: done ? 'line-through' : 'none' }}>{f.title}</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <p style={{ fontWeight: 800, fontSize: 14, textDecoration: done ? 'line-through' : 'none', margin: 0 }}>{f.title}</p>
+              {f.tag && (
+                <span style={{
+                  fontFamily: 'monospace', fontSize: 10, border: `1.5px solid ${tagColor(f.tag)}`,
+                  padding: '2px 7px', textTransform: 'uppercase', background: '#fff', color: tagColor(f.tag),
+                }}>
+                  {f.tag}
+                </span>
+              )}
+            </div>
             {f.details && <p style={{ fontSize: 12.5, color: t.muted, marginTop: 2 }}>{f.details}</p>}
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 6, flexWrap: 'wrap' }}>
               {paused ? (
